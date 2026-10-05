@@ -2,8 +2,19 @@
   "version": 2,
   "enforcementLevel": "strict",
   "libraries": {
-    "manager": [],
-    "managerResolved": [],
+    "manager": [
+      {
+        "name": "LovyanGFX",
+        "version": "1.2.32",
+        "scope": "shared"
+      }
+    ],
+    "managerResolved": [
+      {
+        "name": "LovyanGFX",
+        "version": "1.2.32"
+      }
+    ],
     "git": []
   }
 }
