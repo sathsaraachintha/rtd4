@@ -1,0 +1,12 @@
+{
+  "userId": "u_fc77dfc82af6666a",
+  "projectId": "rtd4",
+  "name": "rtd4",
+  "board": {
+    "fqbn": "esp32:esp32:esp32"
+  },
+  "selections": null,
+  "serial": null,
+  "createdAt": "2026-10-05T11:51:32.238Z",
+  "updatedAt": "2026-10-05T11:51:32.238Z"
+}
