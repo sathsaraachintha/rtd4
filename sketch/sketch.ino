@@ -1,6 +1,7 @@
+// NPD-NORVI EXPE RTD – MASTER (CHUNKED READ)
+
 #include <Wire.h>
 #include <SPI.h>
-#include <PCA9536D.h> // Ensure you have this installed for the buttons!
 
 #define LGFX_USE_V1
 #include <LovyanGFX.hpp>
@@ -56,38 +57,36 @@ public:
 };
 
 LGFX tft; 
-PCA9536 io; 
 
-// ---------------- PINS & ADDRESSES ----------------
-#define SDA_PIN 8
-#define SCL_PIN 9
-#define RTD_ADDR 0x3F
+// ---------------- PINS ----------------
+#define SDA   8
+#define SCL   9
+#define RTD_SLAVE_ADDR 0x3F
 
-#define IO_PB1  0  // Button 1
-#define IO_PB2  3  // Button 2
-
-// ---------------- RTD CONFIG & DATA ----------------
+// ---------------- CONFIG ----------------
 uint8_t rtdType = 0;                 // 0 = PT100 | 1 = PT1000
-uint8_t channelsToRead[4] = {1, 2, 3, 4}; 
-uint8_t numChannels = 4;
-#define CHUNK_SIZE 2
+uint8_t channelsToRead[4] = {1};    // default channel 1
+uint8_t numChannels = 1;
 
+// ---------------- DATA ----------------
 float rtdTemp[4] = {0};
 float rtdRes[4]  = {0};
 uint8_t rtdFault[4] = {0};
+bool configMode = false;
 
-// ---------------- TIMERS & STATES ----------------
-unsigned long lastRTDRead = 0;
-unsigned long lastDisplayUpdate = 0;
-bool lastPb1State = HIGH;
-bool lastPb2State = HIGH;
+// ---------------- TIMER ----------------
+unsigned long lastRead = 0;
+#define READ_INTERVAL 1000
 
 // ---------------- CRC ----------------
-uint8_t crc8(uint8_t *data, int len) {
+uint8_t crc8(uint8_t *data, int len)
+{
   uint8_t crc = 0x00;
-  while (len--) {
+  while (len--)
+  {
     uint8_t extract = *data++;
-    for (uint8_t i = 8; i; i--) {
+    for (uint8_t i = 8; i; i--)
+    {
       uint8_t sum = (crc ^ extract) & 0x01;
       crc >>= 1;
       if (sum) crc ^= 0x8C;
@@ -97,160 +96,245 @@ uint8_t crc8(uint8_t *data, int len) {
   return crc;
 }
 
-// ---------------- FETCH RTD LOGIC ----------------
-void fetchRTDChunked() {
-  for (uint8_t start = 0; start < numChannels; start += CHUNK_SIZE) {
-    uint8_t count = min((uint8_t)CHUNK_SIZE, (uint8_t)(numChannels - start));
+// ---------------- DISPLAY ----------------
+void drawHeader()
+{
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(TFT_YELLOW);
+  
+  // Replaced Free_Fonts.h FSB12 with built-in LovyanGFX equivalent
+  tft.setFont(&fonts::FreeSansBold12pt7b);
 
-    Wire.beginTransmission(RTD_ADDR);
-    Wire.write(0x01);
-    Wire.write(rtdType);
+  tft.setCursor(60, 20);
+  tft.print("NORVI");
 
-    for (uint8_t i = 0; i < count; i++) {
-      Wire.write(channelsToRead[start + i]);
-    }
+  tft.setCursor(20, 40);
+  tft.print("EXPE-RTD TEST");
+}
 
-    if (Wire.endTransmission() != 0) {
-      Serial.println("[ERROR] I2C TX FAIL");
-      continue;
-    }
+void drawValues()
+{
+  tft.fillScreen(TFT_BLACK);
+  tft.setTextColor(TFT_YELLOW);
+  
+  // Replaced Free_Fonts.h FSB9 with built-in LovyanGFX equivalent
+  tft.setFont(&fonts::FreeSansBold9pt7b);
 
-    delay(15);
+  int y = 20;
+  tft.setCursor(0, y);
+  tft.println("NORVI EXPE-RTD MASTER");
 
-    uint8_t totalBytes = count * 12;
-    
-    // Explicit casting fixes the compilation error
-    Wire.requestFrom((uint8_t)RTD_ADDR, (uint8_t)totalBytes);
+  y += 20;
+  tft.setCursor(0, y);
+  tft.setTextColor(TFT_CYAN);
+  tft.print("RTD Type: "); tft.println(rtdType == 0 ? "PT100" : "PT1000");
 
-    if (Wire.available() != totalBytes) {
-      Serial.println("[ERROR] I2C RX FAIL");
-      continue;
-    }
+  y += 20;
+  for (int i = 0; i < numChannels; i++)
+  {
+      uint8_t ch = channelsToRead[i];
 
-    for (uint8_t n = 0; n < count; n++) {
-      uint8_t b[12];
-      for (uint8_t i = 0; i < 12; i++) {
-        b[i] = Wire.read();
-      }
+      tft.setCursor(0, y);
+      tft.setTextColor(TFT_WHITE);
+      tft.print("Ch "); tft.print(ch); tft.print(" : ");
 
-      if (crc8(b, 11) != b[11]) {
-        Serial.printf("[WARNING] CRC ERROR Channel %d\n", b[1]);
-        continue;
-      }
+      tft.setTextColor(TFT_GREEN);
+      tft.print("Temp: "); tft.print(rtdTemp[ch-1], 2); tft.println(" C ");
 
-      uint8_t ch = b[1]; // 1-indexed channel (1-4)
-      
-      memcpy(&rtdTemp[ch - 1], b + 2, 4);
-      memcpy(&rtdRes[ch - 1], b + 6, 4);
-      rtdFault[ch - 1] = b[10];
-    }
+      y += 20;
+
+      tft.setTextColor(TFT_BLUE);
+      tft.print("Res: "); tft.print(rtdRes[ch-1], 2); tft.print(" Ohm ");
+
+      tft.setTextColor(TFT_RED);
+      tft.print("Fault: "); tft.println(rtdFault[ch-1]);
+
+      y += 20;
   }
 }
 
-// ---------------- DISPLAY LOGIC ----------------
-void displayRTD() {
-  tft.setTextColor(TFT_MAGENTA, TFT_BLACK);
-  tft.println("  EXPE-RTD Module   ");
-  tft.println("--------------------");
-  
-  tft.setTextColor(TFT_CYAN, TFT_BLACK);
-  tft.printf(" Type: %-12s\n\n", rtdType == 0 ? "PT100" : "PT1000");
-
-  for (int i = 0; i < 4; i++) {
-    if (rtdFault[i] != 0) {
-      tft.setTextColor(TFT_RED, TFT_BLACK);
-      tft.printf(" CH%d: FAULT (E%d)      \n", i + 1, rtdFault[i]);
-    } else {
-      tft.setTextColor(TFT_GREEN, TFT_BLACK);
-      // Padded to overwrite old text artifacts perfectly
-      tft.printf(" CH%d: %5.1fC %5.1fR \n", i + 1, rtdTemp[i], rtdRes[i]);
-    }
+// ---------------- SERIAL ----------------
+void handleSerial()
+{
+  if (Serial.available())
+  {
+    char c = Serial.read();
+    if (c == 'C' || c == 'c') enterConfig();
   }
-  
-  tft.println("                    "); 
-  tft.println("                    "); 
-  
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.setCursor(0, 260);
-  tft.println("--------------------");
-  tft.println("[B2:PT-TYPE] [B1:REF]");
+}
+
+// ---------------- READ SLAVE (CHUNKED) ----------------
+#define CHUNK_SIZE 2
+
+void readRTD()
+{
+  for (int chunkStart = 0; chunkStart < numChannels; chunkStart += CHUNK_SIZE)
+  {
+      uint8_t chunkCount = min(CHUNK_SIZE, numChannels - chunkStart);
+
+      Wire.beginTransmission(RTD_SLAVE_ADDR);
+      Wire.write(0x01);        // command
+      Wire.write(rtdType);     // RTD type
+
+      for (int i = 0; i < chunkCount; i++)
+      {
+          Wire.write(channelsToRead[chunkStart + i]);
+      }
+
+      if (Wire.endTransmission() != 0)
+      {
+          Serial.println("I2C TX FAIL");
+          continue;
+      }
+
+      delay(15);
+
+      uint8_t totalBytes = chunkCount * 12;
+      
+      // Explicit cast to prevent Wire.h ambiguous overload error
+      Wire.requestFrom((uint8_t)RTD_SLAVE_ADDR, (uint8_t)totalBytes);
+
+      if (Wire.available() != totalBytes)
+      {
+          Serial.println("I2C RX FAIL");
+          continue;
+      }
+
+      for (int idx = 0; idx < chunkCount; idx++)
+      {
+          uint8_t buf[12];
+          for (int i = 0; i < 12; i++) buf[i] = Wire.read();
+
+          if (crc8(buf, 11) != buf[11])
+          {
+              Serial.print("CRC ERROR Channel ");
+              Serial.println(buf[1]);
+              continue;
+          }
+
+          float temp, res;
+          memcpy(&temp, &buf[2], 4);
+          memcpy(&res, &buf[6], 4);
+          uint8_t ch = buf[1];
+
+          rtdTemp[ch-1] = temp;
+          rtdRes[ch-1] = res;
+          rtdFault[ch-1] = buf[10];
+
+          Serial.print("Ch ");
+          Serial.print(ch);
+          Serial.print(" Temp: "); Serial.print(temp);
+          Serial.print(" Res: "); Serial.print(res);
+          Serial.print(" Fault: "); Serial.println(buf[10]);
+      }
+  }
+
+  drawValues();
 }
 
 // ---------------- SETUP ----------------
-void setup() {
+void setup()
+{
   Serial.begin(115200);
-  delay(1000); 
+  delay(10000);
 
-  Serial.println("\n--- BOOTING NORVI EXPE-RTD4 MASTER ---");
-
-  // 1. Wake up the Expansion Bus
+  // --- WAKE UP MODULE ---
   pinMode(PCA_RESET, OUTPUT);
   digitalWrite(PCA_RESET, LOW);   
   delay(100);
   digitalWrite(PCA_RESET, HIGH);  
-  
-  Serial.println("Waiting 1s for RTD Module to initialize...");
-  delay(1000); 
+  delay(1000); // Wait for module to boot
 
-  // 2. Start I2C at standard 100kHz
-  Wire.begin(SDA_PIN, SCL_PIN, 100000); 
-  
-  // 3. Initialize Buttons
-  if (io.begin()) {
-    io.pinMode(IO_PB1, INPUT);
-    io.pinMode(IO_PB2, INPUT);
-    Serial.println("Front Panel Buttons Initialized.");
-  } else {
-    Serial.println("WARNING: PCA9536 Not Found (Buttons disabled).");
-  }
+  Wire.begin(SDA, SCL);
+  Wire.setClock(100000); // Set standard 100kHz
+  delay(100);
 
-  // 4. Initialize TFT
-  tft.init();
-  tft.setRotation(0); 
-  tft.fillScreen(TFT_BLACK);
-  tft.setTextSize(2); 
+  tft.init(); // LovyanGFX handles SPI automatically
+  // Note: tft.setRotation(0) is omitted as LGFX handles it inside the configuration class
 
-  Serial.println("System Ready. Reading Channels...");
+  drawHeader();
+  printCurrentConfig();
+
+  Serial.println("NORVI RTD MASTER STARTED");
 }
 
-// ---------------- MAIN LOOP ----------------
-void loop() {
-  // --- Button Input Handling ---
-  bool currentPb1 = io.digitalRead(IO_PB1); 
-  bool currentPb2 = io.digitalRead(IO_PB2); 
+// ---------------- LOOP ----------------
+unsigned long lastChunkRead = 0;
+void loop()
+{
+  handleSerial();
 
-  // Button 1: Force Screen Clear / Refresh
-  if (currentPb1 == LOW && lastPb1State == HIGH) {
-    tft.fillScreen(TFT_BLACK); 
-    delay(50); // debounce
+  if (!configMode && millis() - lastChunkRead >= READ_INTERVAL)
+  {
+      lastChunkRead = millis();
+      readRTD();
   }
-  lastPb1State = currentPb1;
+}
 
-  // Button 2: Toggle Sensor Type (PT100 <-> PT1000)
-  if (currentPb2 == LOW && lastPb2State == HIGH) {
-    rtdType = (rtdType == 0) ? 1 : 0;
-    Serial.printf("Switched mode to: %s\n", rtdType == 0 ? "PT100" : "PT1000");
-    tft.fillScreen(TFT_BLACK); 
-    delay(50); // debounce
-  }
-  lastPb2State = currentPb2;
+// ---------------- CONFIG ----------------
+void enterConfig() {
+    configMode = true;
+    Serial.println("\n===== CONFIG MODE =====");
+    Serial.println("Enter RTD Type and Channels in one line:");
+    Serial.println("Examples: 100,1 for PT100 Ch1, 1000,1-3 for PT1000 Ch1,2,3");
 
-  // --- Background Tasks ---
-  
-  // Fetch Sensor Data (Every 1 second)
-  if (millis() - lastRTDRead >= 1000) {
-      lastRTDRead = millis();
-      fetchRTDChunked();
-      
-      // Print to Serial for debugging
-      Serial.printf("[DATA] CH1: %.1fC | CH2: %.1fC | CH3: %.1fC | CH4: %.1fC\n", 
-                    rtdTemp[0], rtdTemp[1], rtdTemp[2], rtdTemp[3]);
-  }
+    while (Serial.available()) Serial.read(); // flush buffer
+    String input = "";
+    while (input.length() == 0)
+    {
+        if (Serial.available())
+        {
+            input = Serial.readStringUntil('\n');
+            input.trim();
+        }
+        delay(10);
+    }
 
-  // Update TFT Display (Every 100 milliseconds)
-  if (millis() - lastDisplayUpdate >= 100) {
-      lastDisplayUpdate = millis();
-      tft.setCursor(0, 5);
-      displayRTD();
-  }
+    int commaIndex = input.indexOf(',');
+    if (commaIndex != -1)
+    {
+        String typeStr = input.substring(0, commaIndex);
+        String chStr   = input.substring(commaIndex + 1);
+
+        int typeInput = typeStr.toInt();
+        rtdType = (typeInput == 100) ? 0 : 1;
+
+        numChannels = 0;
+        int dashIndex = chStr.indexOf('-');
+        if (dashIndex != -1)
+        {
+            int startCh = chStr.substring(0, dashIndex).toInt();
+            int endCh   = chStr.substring(dashIndex + 1).toInt();
+            for (int i = startCh; i <= endCh; i++)
+                channelsToRead[numChannels++] = i;
+        }
+        else
+        {
+            int start = 0;
+            while (start < chStr.length() && numChannels < 4)
+            {
+                int commaPos = chStr.indexOf(',', start);
+                String chPart = (commaPos == -1) ? chStr.substring(start) : chStr.substring(start, commaPos);
+                int ch = chPart.toInt();
+                if (ch >= 1 && ch <= 4) channelsToRead[numChannels++] = ch;
+                if (commaPos == -1) break;
+                start = commaPos + 1;
+            }
+        }
+    }
+    Serial.println("\nConfiguration Saved:");
+    printCurrentConfig();
+    configMode = false;
+}
+
+// ---------------- PRINT CONFIG ----------------
+void printCurrentConfig() {
+    Serial.print("RTD Type : "); Serial.println(rtdType == 0 ? "PT100" : "PT1000");
+    Serial.print("Channels : ");
+    for (int i = 0; i < numChannels; i++)
+    {
+        Serial.print(channelsToRead[i]);
+        if (i < numChannels - 1) Serial.print(", ");
+    }
+    Serial.println();
 }
