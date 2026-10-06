@@ -1,4 +1,4 @@
-// NPD-NORVI EXPE RTD – MASTER (CHUNKED READ)
+// NPD-NORVI EXPE RTD – MASTER (SINGLE READ)
 
 #include <Wire.h>
 #include <SPI.h>
@@ -65,7 +65,7 @@ LGFX tft;
 
 // ---------------- CONFIG ----------------
 uint8_t rtdType = 0;                 // 0 = PT100 | 1 = PT1000
-uint8_t channelsToRead[4] = {1};    // default channel 1
+uint8_t channelsToRead[4] = {1};     // default channel 1
 uint8_t numChannels = 1;
 
 // ---------------- DATA ----------------
@@ -101,8 +101,6 @@ void drawHeader()
 {
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_YELLOW);
-  
-  // Replaced Free_Fonts.h FSB12 with built-in LovyanGFX equivalent
   tft.setFont(&fonts::FreeSansBold12pt7b);
 
   tft.setCursor(60, 20);
@@ -116,8 +114,6 @@ void drawValues()
 {
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_YELLOW);
-  
-  // Replaced Free_Fonts.h FSB9 with built-in LovyanGFX equivalent
   tft.setFont(&fonts::FreeSansBold9pt7b);
 
   int y = 20;
@@ -163,8 +159,9 @@ void handleSerial()
   }
 }
 
-// ---------------- READ SLAVE (CHUNKED) ----------------
-#define CHUNK_SIZE 2
+// ---------------- READ SLAVE ----------------
+// FIX 1: The module cannot handle chunk sizes > 1. Must read 1 channel per request.
+#define CHUNK_SIZE 1
 
 void readRTD()
 {
@@ -187,11 +184,10 @@ void readRTD()
           continue;
       }
 
-      delay(15);
+      // FIX 2: Increase delay to 20ms to give the module time to process the single request
+      delay(20);
 
       uint8_t totalBytes = chunkCount * 12;
-      
-      // Explicit cast to prevent Wire.h ambiguous overload error
       Wire.requestFrom((uint8_t)RTD_SLAVE_ADDR, (uint8_t)totalBytes);
 
       if (Wire.available() != totalBytes)
@@ -238,19 +234,22 @@ void setup()
   Serial.begin(115200);
   delay(10000);
 
-  // --- WAKE UP MODULE ---
+  // Wake up module
   pinMode(PCA_RESET, OUTPUT);
   digitalWrite(PCA_RESET, LOW);   
   delay(100);
   digitalWrite(PCA_RESET, HIGH);  
-  delay(1000); // Wait for module to boot
+  delay(1000); 
 
   Wire.begin(SDA, SCL);
-  Wire.setClock(100000); // Set standard 100kHz
+  Wire.setClock(100000); 
+  
+  // FIX 3: Add explicit timeout to prevent I2C bus locking due to clock stretching
+  Wire.setTimeOut(200);
+
   delay(100);
 
-  tft.init(); // LovyanGFX handles SPI automatically
-  // Note: tft.setRotation(0) is omitted as LGFX handles it inside the configuration class
+  tft.init();
 
   drawHeader();
   printCurrentConfig();

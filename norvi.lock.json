@@ -24,6 +24,16 @@
         "version": "2.0.1"
       }
     ],
-    "git": []
+    "git": [
+      {
+        "name": "NORVI_X-RTD4_Test_Code",
+        "url": "https://github.com/NORVIControllers/NORVI-X-Version-02",
+        "commit": "aa6dd5de27089493a1aa9f14b6303c36c7f85f1f",
+        "contentSha256": "1c156e684f70687d5ed1f153ae371ab795a32e9bb5d823ba6166f85699548101",
+        "subpath": "expansion modules/NORVI-X-RTD4/examples/arduino/NORVI_X-RTD4_Test_Code",
+        "scope": "shared",
+        "format": "legacy"
+      }
+    ]
   }
 }
