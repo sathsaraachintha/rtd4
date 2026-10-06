@@ -1,59 +1,112 @@
-#include <Wire.h>
-
-#define SDA_PIN 8
-#define SCL_PIN 9
-#define PCA_RESET 21 
-
-void setup() {
-  Serial.begin(115200);
-  // Give you a few seconds to open the Serial Monitor
-  delay(3000); 
-  
-  Serial.println("\n==================================");
-  Serial.println("NORVI I2C HARDWARE SCANNER");
-  Serial.println("==================================");
-
-  // Wake up the Expansion Bus
-  pinMode(PCA_RESET, OUTPUT);
-  digitalWrite(PCA_RESET, LOW);   
-  delay(100);
-  digitalWrite(PCA_RESET, HIGH);  
-  
-  // Give the RTD module a massive 1-second delay to boot up
-  Serial.println("[SYSTEM] Waking up expansion bus... waiting 1 second.");
-  delay(1000);                     
-
-  // Start I2C at standard 100kHz speed
-  Wire.begin(SDA_PIN, SCL_PIN, 100000);
-
-  Serial.println("\n--- Scanning I2C Bus ---");
-  byte error, address;
-  int devicesFound = 0;
-
-  for (address = 1; address < 127; address++) {
-      Wire.beginTransmission(address);
-      error = Wire.endTransmission();
-      
-      if (error == 0) {
-          Serial.print("[FOUND] Device responded at address: 0x");
-          if (address < 16) Serial.print("0");
-          Serial.println(address, HEX);
-          devicesFound++;
-      } else if (error == 4) {
-          Serial.print("[ERROR 4] Bus error at address: 0x");
-          if (address < 16) Serial.print("0");
-          Serial.println(address, HEX);
-      }
-  }
-  
-  if (devicesFound == 0) {
-      Serial.println("\n[FAIL] NO DEVICES FOUND ON BUS!");
-      Serial.println("Check module seating, DIP switches, and power.");
-  } else {
-      Serial.println("\n--- Scan Complete ---");
-  }
-}
-
-void loop() {
-  // Do nothing
+#include <Wire.h> 
+ 
+#define SDA 8 
+#define SCL 9 
+#define ADDR 0x3F 
+#define CHUNK 2 
+ 
+uint8_t rtdType = 0;   //rtdType = 0 → PT100  ,   rtdType = 1 → PT1000 
+uint8_t channels[] = {1,2,3,4}; 
+uint8_t numChannels = 4; 
+ 
+float temp[4], res[4]; 
+uint8_t fault[4]; 
+ 
+uint8_t crc8(uint8_t *d, uint8_t n) 
+{ 
+  uint8_t c = 0; 
+ 
+  while (n--) 
+  { 
+    uint8_t x = *d++; 
+ 
+    for (uint8_t i = 8; i; i--) 
+    { 
+      uint8_t s = (c ^ x) & 1; 
+      c >>= 1; 
+      if (s) c ^= 0x8C; 
+      x >>= 1; 
+    } 
+  } 
+ 
+  return c; 
+} 
+ 
+void readRTD() 
+{ 
+  for (uint8_t start = 0; start < numChannels; start += CHUNK) 
+  { 
+    uint8_t count = min((uint8_t)CHUNK, 
+                        (uint8_t)(numChannels - start)); 
+ 
+    Wire.beginTransmission(ADDR); 
+    Wire.write(0x01); 
+    Wire.write(rtdType); 
+ 
+    for (uint8_t i = 0; i < count; i++) 
+      Wire.write(channels[start + i]); 
+ 
+    if (Wire.endTransmission()) 
+    { 
+      Serial.println("I2C TX FAIL"); 
+      continue; 
+    } 
+ 
+    delay(15); 
+ 
+    uint8_t bytes = count * 12; 
+    Wire.requestFrom(ADDR, bytes); 
+ 
+    if (Wire.available() != bytes) 
+    { 
+      Serial.println("I2C RX FAIL"); 
+      continue; 
+    } 
+ 
+    for (uint8_t n = 0; n < count; n++) 
+    { 
+      uint8_t b[12]; 
+ 
+      for (uint8_t i = 0; i < 12; i++) 
+        b[i] = Wire.read(); 
+ 
+      if (crc8(b, 11) != b[11]) 
+      { 
+        Serial.print("CRC ERROR Channel "); 
+        Serial.println(b[1]); 
+        continue; 
+      } 
+ 
+      uint8_t ch = b[1]; 
+ 
+      memcpy(&temp[ch - 1], b + 2, 4); 
+      memcpy(&res[ch - 1], b + 6, 4); 
+      fault[ch - 1] = b[10]; 
+ 
+      Serial.print("Ch "); 
+      Serial.print(ch); 
+      Serial.print(" Temp: "); 
+      Serial.print(temp[ch - 1]); 
+      Serial.print(" Res: "); 
+      Serial.print(res[ch - 1]); 
+      Serial.print(" Fault: ");  
+      Serial.println(fault[ch - 1]); 
+    } 
+  } 
+} 
+ 
+void setup() 
+{ 
+  Serial.begin(115200); 
+  delay(1000); 
+ 
+  Wire.begin(SDA, SCL); 
+ 
+  Serial.println("NORVI RTD4 STARTED"); 
+} 
+ 
+void loop() 
+{ 
+  readRTD(); 
+  delay(1000); 
 }
