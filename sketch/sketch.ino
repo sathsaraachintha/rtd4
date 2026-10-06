@@ -3,65 +3,25 @@
 #include <Wire.h>
 #include <SPI.h>
 
+// --- LovyanGFX Library ---
 #define LGFX_USE_V1
 #include <LovyanGFX.hpp>
-
-// --- CRUCIAL FIX: EXPANSION BUS RESET PIN ---
-#define PCA_RESET 21 
-
-// ---------------- LovyanGFX Setup ----------------
-class LGFX : public lgfx::LGFX_Device {
-  lgfx::Panel_ST7789 _panel_instance;
-  lgfx::Bus_SPI      _bus_instance;
-
-public:
-  LGFX(void) {
-    {
-      auto cfg = _bus_instance.config();
-      cfg.spi_host = SPI2_HOST;
-      cfg.spi_mode = 0;
-      cfg.freq_write = 40000000;
-      cfg.freq_read  = 16000000;
-      cfg.spi_3wire  = false;
-      cfg.use_lock   = true;
-      cfg.dma_channel = SPI_DMA_CH_AUTO;
-      
-      cfg.pin_sclk = 12; 
-      cfg.pin_mosi = 11; 
-      cfg.pin_miso = 13; 
-      cfg.pin_dc   = 46; 
-      _bus_instance.config(cfg);
-      _panel_instance.setBus(&_bus_instance);
-    }
-    {
-      auto cfg = _panel_instance.config();
-      cfg.pin_cs           = 45; 
-      cfg.pin_rst          = 47; 
-      cfg.pin_busy         = -1;
-      cfg.panel_width      = 240;
-      cfg.panel_height     = 320;
-      cfg.offset_x         = 0;
-      cfg.offset_y         = 0;
-      cfg.offset_rotation  = 0;
-      cfg.dummy_read_pixel = 8;
-      cfg.dummy_read_bits  = 1;
-      cfg.readable         = true;
-      cfg.invert           = true; 
-      cfg.rgb_order        = false;
-      cfg.dlen_16bit       = false;
-      cfg.bus_shared       = true; 
-      _panel_instance.config(cfg);
-    }
-    setPanel(&_panel_instance);
-  }
-};
-
-LGFX tft; 
 
 // ---------------- PINS ----------------
 #define SDA   8
 #define SCL   9
+
+#define MISO 13
+#define MOSI 11
+#define SCLK 12
+
+#define DSP_CS 45
+
 #define RTD_SLAVE_ADDR 0x3F
+
+// Initialize LovyanGFX instance
+// (Assuming you have a standard LGFX auto-detect or a custom LGFX class defined for your board)
+LGFX tft;
 
 // ---------------- CONFIG ----------------
 uint8_t rtdType = 0;                 // 0 = PT100 | 1 = PT1000
@@ -101,7 +61,9 @@ void drawHeader()
 {
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_YELLOW);
-  tft.setFont(&fonts::FreeSansBold12pt7b); // Replaced FSB12
+  
+  // LovyanGFX equivalent for FSB12 (FreeSansBold12pt7b)
+  tft.setFont(&fonts::FreeSansBold12pt7b);
 
   tft.setCursor(60, 20);
   tft.print("NORVI");
@@ -114,7 +76,9 @@ void drawValues()
 {
   tft.fillScreen(TFT_BLACK);
   tft.setTextColor(TFT_YELLOW);
-  tft.setFont(&fonts::FreeSansBold9pt7b); // Replaced FSB9
+  
+  // LovyanGFX equivalent for FSB9 (FreeSansBold9pt7b)
+  tft.setFont(&fonts::FreeSansBold9pt7b);
 
   int y = 20;
   tft.setCursor(0, y);
@@ -186,7 +150,7 @@ void readRTD()
       delay(15);
 
       uint8_t totalBytes = chunkCount * 12;
-      Wire.requestFrom((uint16_t)RTD_SLAVE_ADDR, (uint8_t)totalBytes);
+      Wire.requestFrom((int)RTD_SLAVE_ADDR, (int)totalBytes);
 
       if (Wire.available() != totalBytes)
       {
@@ -230,25 +194,15 @@ void readRTD()
 void setup()
 {
   Serial.begin(115200);
-  delay(10000); // Kept your original 10-second boot delay
-
-  // --- ADDED: Wake up the Expansion Bus ---
-  pinMode(PCA_RESET, OUTPUT);
-  digitalWrite(PCA_RESET, LOW);   
-  delay(100);
-  digitalWrite(PCA_RESET, HIGH);  
-  delay(1000); // Give RTD module 1s to boot up
-  
-  // NOTE: LovyanGFX handles SPI initialization internally, 
-  // so the standalone SPI.begin() is removed to prevent conflicts.
+  delay(10000);
 
   Wire.begin(SDA, SCL);
-  Wire.setClock(100000); // Standard I2C speed for stability
   delay(100);
+  SPI.begin(SCLK, MISO, MOSI);
+  delay(1000);
 
   tft.init();
-  // setRotation(0) is omitted because LGFX orientation is handled in the class config
-  // (You can add tft.setRotation(1) if the screen is sideways)
+  tft.setRotation(0);
 
   drawHeader();
   printCurrentConfig();
