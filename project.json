@@ -16,7 +16,7 @@
       "JTAGAdapter": "default",
       "LoopCore": "1",
       "MSCOnBoot": "default",
-      "PartitionScheme": "default",
+      "PartitionScheme": "huge_app",
       "PSRAM": "enabled",
       "UploadMode": "default",
       "UploadSpeed": "115200",
@@ -31,5 +31,5 @@
     "properties": []
   },
   "createdAt": "2026-10-05T11:51:32.238Z",
-  "updatedAt": "2026-10-06T07:16:20.986Z"
+  "updatedAt": "2026-10-06T07:34:58.941Z"
 }
